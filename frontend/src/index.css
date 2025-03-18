@@ -1,0 +1,382 @@
+@import './styles/fonts.css';
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    font-family: 'Inter', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+@layer components {
+  .dropdown {
+    @apply relative inline-block;
+  }
+
+  .dropdown-content {
+    @apply hidden absolute z-10 mt-2 w-48 bg-white rounded-md shadow-lg;
+  }
+
+  .dropdown-content a {
+    @apply block px-4 py-2 text-gray-800 hover:bg-gray-100;
+  }
+
+  .dropdown:hover .dropdown-content {
+    @apply block;
+  }
+}
+
+
+.wave-animation {
+  animation: wave 15s ease-in-out infinite;
+}
+
+
+
+* {
+  font-size: medium;
+}
+
+.header { height: 10vh; }
+.logo-container { height: 100%; }
+.logo-img { height: 50%; width: auto; object-fit: contain; }
+.slick-dots li button:before {
+  color: #4F46E5 !important;
+  font-size: 12px !important;
+}
+
+.slick-dots li.slick-active button:before {
+  color: #4F46E5 !important;
+  opacity: 1 !important;
+}
+
+.slick-slide {
+  opacity: 0.5;
+    transition: all 0.3s ease;
+    transform: scale(0.9);
+  }
+
+
+.slick-slide.slick-active {
+  opacity: 1;
+}
+
+.slick-slide.slick-center {
+  transform: scale(1);
+}
+
+.slick-dots {
+  bottom: -3rem;
+}
+
+.slick-dots li button:before {
+  font-size: 8px;
+  color: #E63946; /* Replace with the actual color value */
+  opacity: 0.3;
+  transition: all 0.3s ease;
+}
+
+
+.slick-dots li.slick-active button:before {
+  opacity: 1;
+  transform: scale(1.5);
+}
+
+/* Custom scroll animation */
+@keyframes scroll {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(calc(-250px * 7));
+  }
+}
+
+/* Smooth transition for testimonials section */
+section {
+  position: relative;
+  background: transparent;
+}
+
+.from-transparent {
+  --tw-gradient-from: rgba(255, 255, 255, 0);
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to, rgba(255, 255, 255, 0));
+}
+
+.via-white {
+  --tw-gradient-stops: var(--tw-gradient-from), #ffffff, var(--tw-gradient-to, rgba(255, 255, 255, 0));
+}
+
+
+html {
+  overflow-y: scroll;
+}
+
+/* Testimonials section styling */
+.testimonials-gradient {
+  background: linear-gradient(
+    180deg,
+    #ffffff 0%,
+    rgba(249, 250, 251, 0.5) 50%,
+    rgba(243, 244, 246, 0.5) 100%
+  );
+}
+
+/* Update existing styles */
+.slick-slider {
+  position: relative;
+  z-index: 20; /* Ensure content stays above the gradient */
+  margin-top: 2rem;
+  padding-bottom: 4rem;
+}
+
+/* Enhanced gradient transitions */
+.from-white {
+  --tw-gradient-stops: theme(colors.white), theme(colors.white) 60%, transparent;
+}
+
+
+.leading-relaxed {
+  line-height: 1.75;
+}
+
+@keyframes appear {
+  from {
+    opacity: 0;
+    transform: translateY(-1rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-appear {
+  animation: appear 0.2s ease-out;
+}
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.animate-pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin {
+  animation: spin 0.8s linear infinite;
+}
+@keyframes pulse {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.5);
+    opacity: 0.5;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.marker-pulse::before {
+  content: '';
+  position: absolute;
+  border: 2px solid currentColor;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  animation: pulse 2s ease-out infinite;
+}
+
+/* Add these text shadow utilities */
+.text-shadow {
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.text-shadow-lg {
+  text-shadow: 0 4px 8px rgba(0, 0, 0, 0.5);
+}
+
+/* For the main heading, add this more dramatic effect */
+
+/* Enhance the sahara-red text with a subtle glow */
+.text-sahara-red {
+  text-shadow: 0 0 10px rgba(230, 57, 70, 0.3);
+}
+
+
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  
+  .hide-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  
+  .snap-x {
+    scroll-snap-type: x mandatory;
+  }
+  
+  .snap-center {
+    scroll-snap-align: center;
+  }
+  
+  .highlight-pulse {
+    animation: highlight-pulse 2s ease-in-out;
+  }
+  
+  @keyframes highlight-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0); }
+    50% { box-shadow: 0 0 0 15px rgba(99, 102, 241, 0.2); }
+  }
+
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  
+  .hide-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  
+  /* Custom popup styling */
+  .leaflet-popup-content-wrapper {
+    border-radius: 0.75rem;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 
+                0 8px 10px -6px rgba(0, 0, 0, 0.1);
+    padding: 0;
+  }
+  
+  .leaflet-popup-content {
+    margin: 0;
+    line-height: 1.4;
+  }
+  
+  .leaflet-popup-tip {
+    background-color: white;
+  }
+  
+  .custom-div-icon {
+    background: none;
+    border: none;
+  }
+  .marker-label {
+    background-color: rgba(255, 255, 255, 0.95);
+    padding: 4px 8px;
+    border-radius: 4px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    transition: opacity 0.2s ease;
+    opacity: 0;
+  }
+  
+  .marker-label.visible {
+    opacity: 1;
+  }
+  
+  .gm-style-iw {
+    padding: 0 !important;
+    border-radius: 12px !important;
+  }
+  
+  .gm-style-iw-d {
+    overflow: hidden !important;
+  }
+  
+  .daily-route {
+    transition: stroke-opacity 0.3s ease;
+  }
+  
+  .daily-route:hover {
+    stroke-opacity: 1 !important;
+    stroke-width: 5px !important;
+  }
+  
+  .gm-style-iw {
+    padding: 0 !important;
+    border-radius: 12px !important;
+  }
+  
+  .gm-style-iw button {
+    top: 0 !important;
+    right: 0 !important;
+  }
+  
+  .gm-style-iw-d {
+    overflow: hidden !important;
+    max-height: none !important;
+  }
+  
+  /* Show label on hover */
+  .gm-style .gm-style-iw-c:hover .marker-label {
+    display: block;
+  }
+
+.marker-label-active {
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  transform: translateY(-5px);
+  transition: all 0.3s ease;
+  font-weight: 700 !important;
+}
+
+.marker-label-inactive {
+  opacity: 0.6;
+  transition: all 0.3s ease;
+  transform: translateY(0);
+}
+
+.marker-pulse {
+  animation: pulse 2s infinite;
+}
+
+/* Style enhancements for Google Maps controls */
+.gm-style .gm-style-iw-c {
+  padding: 16px !important;
+  border-radius: 16px !important;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 
+              0 8px 10px -6px rgba(0, 0, 0, 0.1) !important;
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+}
+
+.gm-style .gm-style-iw-d {
+  overflow: hidden !important;
+  max-height: none !important;
+}
+
+/* Custom scrollbars for itinerary panel */
+.itinerary-scrollbar::-webkit-scrollbar {
+  width: 5px;
+}
+
+.itinerary-scrollbar::-webkit-scrollbar-track {
+  background: rgba(243, 244, 246, 0.8);
+  border-radius: 10px;
+}
+
+.itinerary-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(99, 102, 241, 0.6);
+  border-radius: 10px;
+}
+
+.itinerary-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(79, 70, 229, 0.8);
+}
