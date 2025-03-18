@@ -18,10 +18,11 @@ const PORT = process.env.PORT || 5000;
 // Allow cross-origin requests from frontend
 app.use(cors({
   origin: process.env.NODE_ENV === 'production' 
-    ? [process.env.FRONTEND_URL] 
+    ? ['https://moroccoguideai.vercel.app', 'https://moroccoguideai-jehbmbiqh-faiz-oussamas-projects.vercel.app'] 
     : ['http://localhost:5173', 'http://localhost:3000', 'http://localhost:5174'],
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
 }));
 
 app.use(bodyParser.json({ limit: '10mb' }));
