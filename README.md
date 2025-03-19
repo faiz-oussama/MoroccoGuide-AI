@@ -202,7 +202,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## 👨‍💻 Author
 
-- **Your Name** - [GitHub Profile](https://github.com/your-username)
+- **Faiz Oussama** - [GitHub Profile](https://github.com/faiz-oussama)
 
 ## 🙏 Acknowledgments
 
