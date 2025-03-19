@@ -137,19 +137,6 @@ export default function Header() {
 
                 {/* Desktop actions - hide on mobile */}
                 <div className="hidden lg:flex items-center space-x-4">
-                  {/* Theme toggle */}
-                  {!user && (<motion.button 
-                    whileHover={{ scale: 1.05, rotate: 15 }}
-                    whileTap={{ scale: 0.95 }}
-                    className="p-2 rounded-xl text-slate-500 hover:text-indigo-600
-                              hover:bg-indigo-50/50 transition-colors duration-200"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
-                    </svg>
-                  </motion.button>)}
-
-
                   {/* Action buttons */}
                   <div className="flex items-center gap-x-4">
                     {!user && (
@@ -323,9 +310,9 @@ export default function Header() {
                   <div className="space-y-1.5 py-6">
                     {[
                       { to: "/", label: "Home" },
-                      { to: "/payment", label: "Payment" },
-                      { to: "/analytics", label: "Analytics" },
-                      { to: "/education", label: "Education" }
+                      { to: "/explore", label: "Explore" },
+                      { to: "/saved-trips", label: "My Itineraries" },
+                      { to: "/about", label: "About" }
                     ].map((link) => (
                       <Link
                         key={link.label}

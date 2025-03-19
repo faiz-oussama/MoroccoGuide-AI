@@ -19,6 +19,7 @@ import ActivityPreferences from './ActivityPreferences';
 import BudgetSelector from './BudgetSelector';
 import { LoadingIndicator } from './LoadingIndicator';
 import TransportationPreferences from './TransportationPreferences';
+import api from '@/utils/api';
 
 
 function CreateTrip() {
@@ -216,28 +217,27 @@ function CreateTrip() {
   
   
     try {
-      const response = await fetch('http://localhost:5000/generate-trip', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(tripData)
-      });
-  
-  
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to generate trip plan');
-      }
-  
-      const result= await response.json();
-      console.log('Received trip plan:', result);
-      navigate('/trip-results', { 
-        state: { tripPlan: result.data , savedTrip: false }
-      });
+      setIsGenerating(true);
+      console.log('Generating trip with data:', tripData);
       
+      const response = await api.post('/generate-trip', tripData);
+      
+      if (response.status === 200) {
+        const data = response.data;
+        console.log('Trip generated successfully:', data);
+        
+        // Store trip data in sessionStorage to persist across refreshes
+        sessionStorage.setItem('currentTripPlan', JSON.stringify(data));
+        
+        // Pass the complete response to the trip results page
+        navigate('/trip-results', { 
+          state: { tripPlan: data, savedTrip: false }
+        });
+      } else {
+        throw new Error('Failed to generate trip');
+      }
     } catch (error) {
-      console.error('Error generating trip plan:', error);
+      console.error('Error generating trip:', error);
       // Add error state and user notification
     } finally {
       setIsGenerating(false);

@@ -1,36 +1,31 @@
-import { useState, useEffect } from 'react';
-import axios from 'axios';
+import { useState } from 'react';
+import api from '@/utils/api';
 
 export function DatabaseTest() {
   const [connectionStatus, setConnectionStatus] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  useEffect(() => {
-    async function testConnection() {
-      try {
-        // Use full URL to the backend
-        const response = await axios.get('http://localhost:5000/test-db', {
-          headers: {
-            'Content-Type': 'application/json'
-          }
-        });
-        
-        setConnectionStatus(response.data);
-        setLoading(false);
-      } catch (error) {
-        console.error('Connection test error:', error);
-        setError(error.message);
-        setConnectionStatus({
-          status: 'error',
-          message: error.message
-        });
-        setLoading(false);
-      }
+  const testDatabase = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      // Use the api utility instead of axios with hardcoded URL
+      const response = await api.get('/test-db');
+      
+      setConnectionStatus(response.data);
+    } catch (err) {
+      console.error('Database test failed:', err);
+      setError(err.message || 'An error occurred while testing the database');
+      setConnectionStatus({
+        status: 'error',
+        message: err.message || 'An error occurred while testing the database'
+      });
+    } finally {
+      setLoading(false);
     }
-
-    testConnection();
-  }, []);
+  };
 
   if (loading) return <div>Testing database connection...</div>;
   if (error) return <div>Error: {error}</div>;

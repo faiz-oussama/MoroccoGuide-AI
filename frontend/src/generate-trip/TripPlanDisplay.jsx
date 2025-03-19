@@ -4,7 +4,7 @@ import { Tab, TabGroup, TabList, TabPanel, TabPanels } from '@headlessui/react';
 import axios from 'axios';
 import { motion } from 'framer-motion';
 import { ArrowLeft, Banknote, Building2, Bus, Calendar, Clock, MapPin, Plane, Train, Utensils } from 'lucide-react';
-import { useContext, useEffect, useState } from 'react';
+import { useContext, useEffect, useState, useRef } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { toast } from 'sonner';
 import { fetchCityImage } from '../utils/fetchCityImage';
@@ -15,8 +15,11 @@ import HotelCard from './HotelCard';
 import JourneyMap from './JourneyMap';
 import MealCard from './MealCard';
 import TripMapModal from './TripMapModal';
+import api from '../utils/api';
+import { jsPDF } from 'jspdf';
+import html2canvas from 'html2canvas';
 
-export default function TripPlanDisplay(props) {
+export default function TripPlanDisplay({ tripPlan: propsTripPlan, savedTrip: propsSavedTrip }) {
   const [BackgroundImage, setBackgroundImage] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const { user } = useContext(AuthContext);
@@ -25,9 +28,22 @@ export default function TripPlanDisplay(props) {
   const [saveError, setSaveError] = useState(null);
   const location = useLocation();
   const [mapModalOpen, setMapModalOpen] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const itineraryRef = useRef(null);
   
-  const { tripPlan, savedTrip } = location.state || {};
-  console.log("savedTrip",tripPlan);
+  // Use props first, fall back to location.state (for backward compatibility)
+  const tripPlanData = propsTripPlan || (location.state?.tripPlan);
+  
+  // Extract the tripPlan - production and development may have different structures
+  // Production data may be nested within a 'data' property
+  const tripPlan = tripPlanData?.data || tripPlanData;
+  const savedTrip = propsSavedTrip || (location.state?.savedTrip);
+  
+  console.log("TripPlanDisplay - Props tripPlan:", propsTripPlan);
+  console.log("TripPlanDisplay - Processed tripPlan:", tripPlan);
+  console.log("TripPlanDisplay - Props savedTrip:", propsSavedTrip);
+  console.log("TripPlanDisplay - Location state:", location.state);
+  
   // Check if this trip was already saved on component mount
   useEffect(() => {
     if (savedTrip) {
@@ -70,7 +86,7 @@ export default function TripPlanDisplay(props) {
       // Add a slight delay for better user experience - shows loading state
       await new Promise(resolve => setTimeout(resolve, 800));
       
-      const response = await axios.post('http://localhost:5000/save-trip', {
+      const response = await api.post('/save-trip', {
         tripData: tripPlan,
         userId: user.uid,
         email: user.email
@@ -158,7 +174,192 @@ export default function TripPlanDisplay(props) {
     loadCityImage();
   }, [tripPlan?.tripDetails?.destination]);
 
-  
+  const handleDownloadItinerary = async () => {
+    if (!tripPlan) return;
+    
+    setIsDownloading(true);
+    toast.info("Preparing your itinerary for download...");
+    
+    try {
+      // Create a new PDF document
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4',
+      });
+      
+      // Set document properties
+      pdf.setProperties({
+        title: `${tripPlan.tripDetails.destination} Trip Itinerary`,
+        subject: `${tripPlan.tripDetails.duration.days}-Day Trip to ${tripPlan.tripDetails.destination}`,
+        author: 'Maghreb AI Trip Planner',
+        creator: 'Maghreb AI Trip Planner'
+      });
+      
+      // Add title
+      pdf.setFontSize(24);
+      pdf.setTextColor(75, 85, 99); // text-gray-600
+      pdf.text(`${tripPlan.tripDetails.destination} Trip Itinerary`, 20, 20);
+      
+      // Add trip summary info
+      pdf.setFontSize(12);
+      pdf.setTextColor(107, 114, 128); // text-gray-500
+      pdf.text(`Duration: ${tripPlan.tripDetails.duration.days} Days / ${tripPlan.tripDetails.duration.days - 1} Nights`, 20, 30);
+      
+      if (tripPlan.tripDetails.dates) {
+        const startDate = new Date(tripPlan.tripDetails.dates.start).toLocaleDateString();
+        const endDate = new Date(tripPlan.tripDetails.dates.end).toLocaleDateString();
+        pdf.text(`Dates: ${startDate} to ${endDate}`, 20, 36);
+      }
+      
+      // Add daily plan content
+      let yPosition = 46;
+      
+      // Iterate through days
+      tripPlan.dailyPlan.forEach((day, dayIndex) => {
+        // Add page break if needed
+        if (yPosition > 270) {
+          pdf.addPage();
+          yPosition = 20;
+        }
+        
+        // Day header
+        pdf.setFontSize(16);
+        pdf.setTextColor(55, 65, 81); // text-gray-700
+        pdf.text(`Day ${day.day}: ${day.location || tripPlan.tripDetails.destination}`, 20, yPosition);
+        yPosition += 8;
+        
+        // Day description
+        if (day.description) {
+          pdf.setFontSize(10);
+          pdf.setTextColor(107, 114, 128); // text-gray-500
+          
+          // Wrap text to fit the page width
+          const splitDescription = pdf.splitTextToSize(day.description, 170);
+          pdf.text(splitDescription, 20, yPosition);
+          yPosition += splitDescription.length * 5 + 4;
+        }
+        
+        // Activities
+        if (day.activities && day.activities.length > 0) {
+          pdf.setFontSize(12);
+          pdf.setTextColor(79, 70, 229); // text-indigo-600
+          pdf.text("Activities:", 20, yPosition);
+          yPosition += 6;
+          
+          pdf.setFontSize(10);
+          pdf.setTextColor(55, 65, 81); // text-gray-700
+          
+          day.activities.forEach((activity, actIndex) => {
+            // Check if we need a new page
+            if (yPosition > 270) {
+              pdf.addPage();
+              yPosition = 20;
+            }
+            
+            // Activity time and title
+            const activityTime = activity.time || "All day";
+            pdf.text(`${activityTime} - ${activity.title}`, 25, yPosition);
+            yPosition += 5;
+            
+            // Activity location if available
+            if (activity.location) {
+              pdf.setTextColor(107, 114, 128); // text-gray-500
+              pdf.text(`Location: ${activity.location}`, 30, yPosition);
+              yPosition += 5;
+            }
+            
+            // Activity description if available
+            if (activity.description) {
+              pdf.setTextColor(107, 114, 128); // text-gray-500
+              const splitActDescription = pdf.splitTextToSize(activity.description, 160);
+              pdf.text(splitActDescription, 30, yPosition);
+              yPosition += splitActDescription.length * 5 + 2;
+            }
+          });
+        }
+        
+        // Meals
+        if (day.meals && day.meals.length > 0) {
+          // Check if we need a new page
+          if (yPosition > 245) {
+            pdf.addPage();
+            yPosition = 20;
+          }
+          
+          pdf.setFontSize(12);
+          pdf.setTextColor(217, 119, 6); // text-amber-600
+          pdf.text("Meals:", 20, yPosition);
+          yPosition += 6;
+          
+          pdf.setFontSize(10);
+          pdf.setTextColor(55, 65, 81); // text-gray-700
+          
+          day.meals.forEach((meal) => {
+            pdf.text(`• ${meal.type}: ${meal.place}`, 25, yPosition);
+            yPosition += 5;
+            
+            if (meal.description) {
+              pdf.setTextColor(107, 114, 128); // text-gray-500
+              const splitMealDesc = pdf.splitTextToSize(meal.description, 160);
+              pdf.text(splitMealDesc, 30, yPosition);
+              yPosition += splitMealDesc.length * 5 + 2;
+            }
+          });
+        }
+        
+        // Add some space between days
+        yPosition += 10;
+      });
+      
+      // Add accommodation info
+      if (tripPlan.accommodation && tripPlan.accommodation.hotels && tripPlan.accommodation.hotels.length > 0) {
+        pdf.addPage();
+        
+        pdf.setFontSize(18);
+        pdf.setTextColor(75, 85, 99); // text-gray-600
+        pdf.text("Accommodation Details", 20, 20);
+        
+        let accommodationY = 30;
+        
+        tripPlan.accommodation.hotels.forEach((hotel, index) => {
+          pdf.setFontSize(14);
+          pdf.setTextColor(55, 65, 81); // text-gray-700
+          pdf.text(hotel.name, 20, accommodationY);
+          accommodationY += 6;
+          
+          pdf.setFontSize(10);
+          pdf.setTextColor(107, 114, 128); // text-gray-500
+          
+          if (hotel.location) {
+            pdf.text(`Location: ${hotel.location}`, 20, accommodationY);
+            accommodationY += 5;
+          }
+          
+          if (hotel.description) {
+            const splitHotelDesc = pdf.splitTextToSize(hotel.description, 170);
+            pdf.text(splitHotelDesc, 20, accommodationY);
+            accommodationY += splitHotelDesc.length * 5 + 2;
+          }
+          
+          if (index < tripPlan.accommodation.hotels.length - 1) {
+            accommodationY += 8;
+          }
+        });
+      }
+      
+      // Save the PDF
+      pdf.save(`${tripPlan.tripDetails.destination.replace(/,/g, '')}_Trip_Itinerary.pdf`);
+      
+      toast.success("Itinerary downloaded successfully!");
+    } catch (error) {
+      console.error("Error generating PDF:", error);
+      toast.error("Failed to download itinerary. Please try again.");
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
   if (!tripPlan || !tripPlan.tripDetails) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -409,21 +610,22 @@ export default function TripPlanDisplay(props) {
             </motion.p>
           </motion.div>
 
-            {/* Decorative Elements */}
-            <div className="absolute left-1/2 bottom-8 transform -translate-x-1/2">
-              <motion.div
-                animate={{ y: [0, -8, 0] }}
-                transition={{ repeat: Infinity, duration: 2 }}
-                className="flex flex-col items-center space-y-4"
-              >
-                <div className="text-sm text-slate-500 -mb-6">Scroll to explore</div>
-                <div className="h-12 w-[1px] bg-gradient-to-b from-slate-300 to-transparent" />
-              </motion.div>
-            </div>
+          {/* Decorative Elements */}
+          <div className="absolute left-1/2 bottom-8 transform -translate-x-1/2">
+            <motion.div
+              animate={{ y: [0, -8, 0] }}
+              transition={{ repeat: Infinity, duration: 2 }}
+              className="flex flex-col items-center space-y-4"
+            >
+              <div className="text-sm text-slate-500 -mb-6">Scroll to explore</div>
+              <div className="h-12 w-[1px] bg-gradient-to-b from-slate-300 to-transparent" />
+            </motion.div>
           </div>
         </div>
+      </div>
+
       {/* Main Content Container */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-10 relative z-0 pb-16">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-10 relative z-0 pb-16" ref={itineraryRef}>
         {/* Enhanced Tab Navigation */}
         <TabGroup>
           <TabList className="flex flex-wrap justify-center items-center space-x-1 p-2 mb-8 bg-white/80 backdrop-blur-md rounded-2xl shadow-lg">
@@ -668,11 +870,25 @@ export default function TripPlanDisplay(props) {
                       className="px-5 py-2.5 bg-white rounded-xl border border-indigo-200 text-indigo-600 
                               text-sm font-medium shadow-sm hover:shadow-md hover:border-indigo-300
                               transition-all duration-300 flex items-center"
+                      onClick={handleDownloadItinerary}
+                      disabled={isDownloading}
                     >
-                      <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                      </svg>
-                      Download Itinerary
+                      {isDownloading ? (
+                        <>
+                          <svg className="animate-spin w-4 h-4 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          Processing...
+                        </>
+                      ) : (
+                        <>
+                          <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                          </svg>
+                          Download Itinerary
+                        </>
+                      )}
                     </motion.button>
                     <motion.button
                       whileHover={{ scale: 1.04, y: -2 }}

@@ -6,7 +6,11 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { useContext, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
+import api from '@/utils/api'; // Import the API utility
 
+// Add debugging code to check the API URL
+console.log('API URL from environment:', import.meta.env.VITE_API_URL);
+console.log('API URL used in api utility:', api.defaults.baseURL);
 
 export default function SavedTrips() {
   const { user } = useContext(AuthContext);
@@ -53,7 +57,8 @@ export default function SavedTrips() {
       if (!user) return;
       
       try {
-        const response = await axios.get(`http://localhost:5000/user-trips/${user.uid}`);
+        // Use the API utility instead of hardcoded URL
+        const response = await api.get(`/user-trips/${user.uid}`);
         
         if (response.data && Array.isArray(response.data.data)) {
           setTrips(response.data.data);
@@ -186,7 +191,8 @@ export default function SavedTrips() {
     if (!tripToDelete) return;
     
     try {
-      await axios.delete(`http://localhost:5000/trips/${tripToDelete}`);
+      // Use the API utility instead of hardcoded URL
+      await api.delete(`/trips/${tripToDelete}`);
       setTrips(trips.filter(trip => trip._id !== tripToDelete));
       toast.success("Trip deleted successfully!");
       setTripToDelete(null);

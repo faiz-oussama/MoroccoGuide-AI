@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --mode development",
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview"
@@ -19,6 +19,7 @@
     "@radix-ui/react-select": "^2.1.6",
     "@radix-ui/react-slot": "^1.1.2",
     "@react-google-maps/api": "^2.20.6",
+    "@react-spring/web": "^9.7.5",
     "axios": "^1.8.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -28,8 +29,11 @@
     "firebase": "^11.4.0",
     "flowbite-react": "^0.10.2",
     "framer-motion": "^12.4.10",
+    "html2canvas": "^1.4.1",
+    "jspdf": "^3.0.1",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.476.0",
+    "mapbox-gl": "^3.10.0",
     "next-themes": "^0.4.6",
     "prop-types": "^15.8.1",
     "react": "^18.2.0",
@@ -63,4 +67,4 @@
     "tailwindcss": "^3.4.17",
     "vite": "^6.2.0"
   }
-} 
+}

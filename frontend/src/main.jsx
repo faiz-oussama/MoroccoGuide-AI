@@ -15,6 +15,8 @@ import CreateTrip from './create-trip/index.jsx'
 import ResultsPage from './generate-trip/ResultsPage.jsx'
 import './index.css'
 import SavedTrips from './saved-trips/viewSavedTrips'
+import Explore from './explore/index.jsx'
+import AboutUs from './components/AboutUs'
 
 const router = createBrowserRouter([
   {
@@ -32,7 +34,6 @@ const router = createBrowserRouter([
     element: <DatabaseTest />
 
   },
-  
   {
     element: <Layout />,
     children: [
@@ -43,6 +44,10 @@ const router = createBrowserRouter([
       {
         path: '/login',
         element: <Login />,
+      },
+      {
+        path: '/explore',
+        element: <Explore />,
       },
       {
         path: '/create-trip',
@@ -73,7 +78,7 @@ const router = createBrowserRouter([
       },
       {
         path: '/map',
-        element: <div>Interactive Map Page</div>,
+        element: <div>Interactive Map</div>,
       },
       {
         path: '/festivals',
@@ -82,6 +87,10 @@ const router = createBrowserRouter([
       {
         path: '/signin',
         element: <div>Sign In Page</div>,
+      },
+      {
+        path: '/about',
+        element: <AboutUs />,
       },
       
     ]

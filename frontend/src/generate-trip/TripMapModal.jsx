@@ -1,7 +1,7 @@
-import { DirectionsRenderer, GoogleMap, InfoWindow, Marker, MarkerClusterer, Polyline, useJsApiLoader } from '@react-google-maps/api';
+import { DirectionsRenderer, GoogleMap, Marker, MarkerClusterer, Polyline, useJsApiLoader } from '@react-google-maps/api';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Camera, Eye, Filter, Layers, Loader, Route, Share2, X, ZoomIn, ZoomOut } from 'lucide-react';
-import React, { useEffect, useRef, useState } from 'react';
+import { Eye, Filter, Layers, Loader, MapPin, Route, Star, X, ZoomIn, ZoomOut } from 'lucide-react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ItineraryPanel } from './ItineraryPanel';
 import { MAP_CONFIG } from './mapconfig';
 
@@ -85,6 +85,9 @@ const processLocations = (tripPlan) => {
         lat: parseFloat(hotel.coordinates.latitude),
         lng: parseFloat(hotel.coordinates.longitude)
       } : null,
+      locationImage: hotel.imageUrl || null,
+      rating: hotel.rating || null,
+      locationDescription: hotel.description || null,
       day: 'Accommodation'
     });
   });
@@ -98,6 +101,9 @@ const processLocations = (tripPlan) => {
         lat: parseFloat(attraction.coordinates.latitude),
         lng: parseFloat(attraction.coordinates.longitude)
       } : null,
+      locationImage: attraction.imageUrl || null,
+      rating: attraction.rating || null,
+      locationDescription: attraction.details || null,
       day: 'Points of Interest'
     });
   });
@@ -109,7 +115,13 @@ const processLocations = (tripPlan) => {
           name: activity.activity,
           description: `${activity.time} - ${activity.location}`,
           type: activity.transport === 'N/A' ? 'activity' : 'transport',
-          position: null, // Will be geocoded
+          position: activity["activity location coordinates"] ? {
+            lat: parseFloat(activity["activity location coordinates"].latitude),
+            lng: parseFloat(activity["activity location coordinates"].longitude)
+          } : null,
+          locationImage: activity.locationImage || null,
+          rating: activity.rating || null,
+          locationDescription: activity.locationDescription || null,
           originalLocation: activity.location,
           day: `Day ${day.day} - ${day.date || ''}`
         });
@@ -122,7 +134,13 @@ const processLocations = (tripPlan) => {
         name: meal.restaurant,
         description: `${meal.mealType} - ${meal.time}\n${meal.cuisineType?.join(', ')}`,
         type: 'restaurant',
-        position: null, // Will be geocoded
+        position: meal["coordinates of restaurant"] ? {
+          lat: parseFloat(meal["coordinates of restaurant"].latitude),
+          lng: parseFloat(meal["coordinates of restaurant"].longitude)
+        } : null,
+        locationImage: meal.imageUrl || null,
+        rating: meal.rating || null,
+        locationDescription: meal.mealType + " - " + meal.cuisineType?.join(', '),
         originalLocation: meal.location,
         day: `Day ${day.day} - ${day.date || ''}`
       });
@@ -155,6 +173,30 @@ const createDailyActivitiesMap = (tripPlan) => {
       return;
     }
     
+    // Find matching activity objects with full details
+    const activityDetailsByTime = {};
+    
+    // Index activities by time for quick lookup
+    if (dayPlan.activities) {
+      dayPlan.activities.forEach(activity => {
+        activityDetailsByTime[activity.time] = activity;
+      });
+    }
+    
+    // Index meals by time
+    if (dayPlan.meals) {
+      dayPlan.meals.forEach(meal => {
+        activityDetailsByTime[meal.time] = {
+          activity: `${meal.mealType} at ${meal.restaurant}`,
+          location: meal.location,
+          locationImage: meal.imageUrl,
+          rating: meal.rating,
+          locationDescription: `${meal.mealType} - ${meal.cuisineType?.join(', ')}`,
+          type: 'restaurant'
+        };
+      });
+    }
+    
     // Convert summaryOfDay object to array of activities
     const activities = Object.entries(dayPlan.summaryOfDay).map(([time, data]) => {
       // Validate each entry
@@ -162,6 +204,9 @@ const createDailyActivitiesMap = (tripPlan) => {
         console.warn(`Invalid data for time ${time} on day ${dayNum}`);
         return null;
       }
+      
+      // Get the full activity details if available
+      const activityDetails = activityDetailsByTime[time] || {};
       
       // Create a properly structured activity object
       return {
@@ -174,7 +219,10 @@ const createDailyActivitiesMap = (tripPlan) => {
         description: `${time} - ${data.activity}`,
         day: `Day ${dayNum} - ${dayPlan.date || ''}`,
         type: determineActivityType(data.activity),
-        sequenceNum: 0 // Will be set after sorting
+        sequenceNum: 0, // Will be set after sorting
+        locationImage: activityDetails.locationImage || null,
+        rating: activityDetails.rating || null,
+        locationDescription: activityDetails.locationDescription || null
       };
     }).filter(Boolean); // Remove any null entries
     
@@ -267,6 +315,114 @@ const determineActivityType = (activityName) => {
   return 'activity';
 };
 
+// Define a custom overlay class that extends OverlayView - but only when Google Maps is loaded
+const createInfoWindowOverlay = () => {
+  if (!window.google || !window.google.maps) {
+    console.error("Google Maps API not loaded yet");
+    return null;
+  }
+
+  return class InfoWindowOverlay extends window.google.maps.OverlayView {
+    constructor(position, content) {
+      super();
+      this.position = position;
+      this.content = content;
+      this.div = null;
+    }
+
+    // Safely set the map with error handling
+    setMap(map) {
+      try {
+        super.setMap(map);
+      } catch (error) {
+        console.error("Error in InfoWindowOverlay.setMap:", error);
+      }
+    }
+
+    // Add method to update content
+    updateContent(newContent) {
+      if (!this.div) return;
+      this.content = newContent;
+      
+      // If the old content has a child node, remove it
+      while (this.div.firstChild) {
+        this.div.removeChild(this.div.firstChild);
+      }
+      
+      // If newContent is a DOM element
+      if (newContent instanceof Element) {
+        this.div.appendChild(newContent);
+      } else {
+        // If it's a string
+        this.div.innerHTML = newContent;
+      }
+    }
+
+    // Add method to update position
+    updatePosition(newPosition) {
+      this.position = newPosition;
+      if (this.div) {
+        this.draw();
+      }
+    }
+
+    // Safely add the overlay to the map
+    onAdd() {
+      // Create the div and set its style
+      this.div = document.createElement('div');
+      this.div.style.position = 'absolute';
+      this.div.style.zIndex = '1000';
+      
+      // Add content
+      if (this.content instanceof Element) {
+        this.div.appendChild(this.content);
+      } else {
+        this.div.innerHTML = this.content;
+      }
+
+      // Add the div to the overlay pane
+      const panes = this.getPanes();
+      if (panes) {
+        panes.floatPane.appendChild(this.div);
+      } else {
+        console.error('Could not access map panes');
+      }
+    }
+
+    // Draw the overlay
+    draw() {
+      // Get the projection
+      const overlayProjection = this.getProjection();
+      if (!overlayProjection) {
+        console.error('Could not get map projection');
+        return;
+      }
+
+      // Convert lat/lng to pixel coordinates
+      const pixel = overlayProjection.fromLatLngToDivPixel(this.position);
+      if (!pixel) {
+        console.error('Could not convert coordinates to pixels');
+        return;
+      }
+
+      // Position the div
+      this.div.style.left = `${pixel.x}px`;
+      this.div.style.top = `${pixel.y - 140}px`;
+      this.div.style.transform = 'translate(-50%, 0)';
+    }
+
+    // Remove the overlay
+    onRemove() {
+      if (this.div) {
+        if (this.div.parentNode) {
+          this.div.parentNode.removeChild(this.div);
+        }
+        this.div = null;
+      }
+    }
+  };
+};
+
 export default function TripMapModal({ isOpen, onClose, tripPlan }) {
   const [mapLoaded, setMapLoaded] = useState(false);
   const [selectedLocation, setSelectedLocation] = useState(null);
@@ -282,14 +438,21 @@ export default function TripMapModal({ isOpen, onClose, tripPlan }) {
   const [toastMessage, setToastMessage] = useState('');
   const [isCapturing, setIsCapturing] = useState(false);
   const [geocodingProgress, setGeocodingProgress] = useState(0);
-  const [directionsResponses, setDirectionsResponses] = useState([]);  const [isLoadingDirections, setIsLoadingDirections] = useState(false);
+  const [directionsResponses, setDirectionsResponses] = useState([]);
+  const [isLoadingDirections, setIsLoadingDirections] = useState(false);
   const [routeCache, setRouteCache] = useState({});
   const [sequenceMarkers, setSequenceMarkers] = useState([]);
   const [fallbackPolylines, setFallbackPolylines] = useState([]);
+  const [locationPhoto, setLocationPhoto] = useState(null);
+  const [isLoadingPhoto, setIsLoadingPhoto] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
   const totalLocationsToGeocode = useRef(0);
   const directionsRendererRef = useRef(null);
   const activeRenderers = useRef([]);
   const mapRef = useRef(null);
+  const placesServiceRef = useRef(null);
+  const infoWindowOverlayRef = useRef(null);
+  const [InfoWindowOverlayClass, setInfoWindowOverlayClass] = useState(null);
 
   // Load Google Maps API using shared config
   const { isLoaded, loadError } = useJsApiLoader(MAP_CONFIG);
@@ -375,6 +538,32 @@ export default function TripMapModal({ isOpen, onClose, tripPlan }) {
     return location;
   };
 
+  // Create a specialized version for geocoding summary locations with address strings
+  const geocodeAddressString = async (locationName, destination) => {
+    if (!window.google?.maps?.Geocoder) {
+      console.error("Google Maps Geocoder not loaded");
+      return null;
+    }
+
+    const geocoder = new window.google.maps.Geocoder();
+
+    try {
+      const { results } = await geocoder.geocode({
+        address: `${locationName}, ${destination}`
+      });
+
+      if (results && results[0]) {
+        return {
+          lat: results[0].geometry.location.lat(),
+          lng: results[0].geometry.location.lng()
+        };
+      }
+    } catch (error) {
+      console.error("Geocoding error:", error);
+    }
+    return null;
+  };
+
   // Add a geocoding effect
   useEffect(() => {
     if (geocodingQueue.length > 0 && isLoaded) {
@@ -401,25 +590,59 @@ export default function TripMapModal({ isOpen, onClose, tripPlan }) {
 const computeLocationsFromSummary = () => {
   const allLocations = [];
   
-  if (!tripPlan?.dailyPlan) return [];
+  if (!tripPlan || !tripPlan.dailyPlan) return allLocations;
   
   tripPlan.dailyPlan.forEach(day => {
     if (!day.summaryOfDay) return;
     
+    // Create lookup maps for activities and meals
+    const activityByTime = {};
+    const mealByTime = {};
+    
+    // Index activities by time
+    if (day.activities) {
+      day.activities.forEach(activity => {
+        activityByTime[activity.time] = activity;
+      });
+    }
+    
+    // Index meals by time
+    if (day.meals) {
+      day.meals.forEach(meal => {
+        mealByTime[meal.time] = meal;
+      });
+    }
+    
     Object.entries(day.summaryOfDay).forEach(([time, data]) => {
       if (!data || !data.activity || !data.location) return;
       
-      allLocations.push({
+      // Find matching detailed activity or meal
+      const matchingActivity = activityByTime[time];
+      const matchingMeal = mealByTime[time];
+      const details = matchingActivity || matchingMeal;
+      
+      // Create location entry with placeholder position if JSON coordinates are not available
+      const locationEntry = {
         name: data.activity,
         description: `${time} - ${data.activity}`,
-        position: {
+        // Check if location has valid coordinates in the JSON
+        position: (data.location?.latitude && data.location?.longitude) ? {
           lat: parseFloat(data.location.latitude),
           lng: parseFloat(data.location.longitude)
-        },
+        } : null, // Will be filled by geocoding if null
         day: `Day ${day.day} - ${day.date || ''}`,
         time,
-        type: determineActivityType(data.activity)
-      });
+        type: determineActivityType(data.activity),
+        locationImage: details?.locationImage || details?.imageUrl || null,
+        rating: details?.rating || null,
+        locationDescription: details?.locationDescription || null,
+        address: details?.address || (typeof data.location === 'string' ? data.location : null),
+        locationName: typeof data.location === 'string' ? data.location : 
+                      data.location?.name || data.activity
+      };
+      
+      // Add to allLocations array
+      allLocations.push(locationEntry);
     });
   });
   
@@ -428,6 +651,57 @@ const computeLocationsFromSummary = () => {
 
 // Get all locations
 const locations = computeLocationsFromSummary();
+
+// Schedule geocoding for all locations without coordinates
+useEffect(() => {
+  if (!isLoaded || !isOpen || !tripPlan) return;
+  
+  const locationsToGeocode = locations.filter(loc => !loc.position);
+  if (locationsToGeocode.length === 0) return;
+
+  setGeocodingProgress(0);
+  totalLocationsToGeocode.current = locationsToGeocode.length;
+  
+  const geocodeAllLocations = async () => {
+    // Process locations in batches to avoid rate limiting
+    const batchSize = 5;
+    let processedCount = 0;
+    
+    // Process each location in batches
+    for (let i = 0; i < locationsToGeocode.length; i += batchSize) {
+      const batch = locationsToGeocode.slice(i, i + batchSize);
+      await Promise.all(
+        batch.map(async (location) => {
+          try {
+            const coords = await geocodeAddressString(
+              location.locationName || location.address || location.name,
+              tripPlan?.tripDetails?.destination
+            );
+            
+            if (coords) {
+              // Update the location in-place
+              location.position = coords;
+            }
+          } catch (error) {
+            console.error(`Failed to geocode ${location.locationName}:`, error);
+          }
+          
+          // Update progress
+          processedCount++;
+          setGeocodingProgress((processedCount / totalLocationsToGeocode.current) * 100);
+        })
+      );
+      
+      // Add a small delay between batches to avoid rate limiting
+      if (i + batchSize < locationsToGeocode.length) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    }
+  };
+  
+  geocodeAllLocations();
+  
+}, [isLoaded, isOpen, tripPlan, locations]);
 
 // Filter locations based on active day and filter type
 const filteredLocations = locations.filter(location => {
@@ -472,21 +746,31 @@ const filteredLocations = locations.filter(location => {
   
   // Add this function to clear all route visuals
   const clearRouteVisuals = () => {
+    console.log("Clearing route visuals...");
+
     // Clear all sequence markers from the map
     sequenceMarkers.forEach(item => {
-      if (item.marker) {
-        item.marker.setMap(null);
-      }
+        if (item.marker) {
+            console.log("Removing sequence marker from map:", item.marker);
+            item.marker.setMap(null);
+        }
     });
     
     // Reset sequence markers array
     setSequenceMarkers([]);
     
-    // Clear all directions
+    // Clear all directions responses
+    console.log("Clearing directions responses...");
     setDirectionsResponses([]);
     
     // Clear fallback polylines
-    setFallbackPolylines([]);
+    fallbackPolylines.forEach(polyline => {
+        console.log("Removing fallback polyline from map:", polyline);
+        polyline.setMap(null); // Ensure each polyline is removed from the map
+    });
+    
+    console.log("Clearing fallback polylines state...");
+    setFallbackPolylines([]); // Clear the state
   };
 
   // Handle day selection
@@ -511,15 +795,25 @@ const filteredLocations = locations.filter(location => {
     });
     setSequenceMarkers([]);
     
-    // Step 4: Update active day
+    // Step 4: Store current location
+    const currentLocation = selectedLocation;
+    
+    // Step 5: Update active day
     setActiveDay(day);
     
-    // Step 5: Toast
+    // Step 6: Toast
     showToastMessage(`Showing Day ${day} locations`);
     
-    // Step 6: Calculate routes for the new day
+    // Step 7: Calculate routes for the new day
     setTimeout(() => {
       calculateDailyRoutes();
+      
+      // Step 8: Update infoWindow if needed
+      if (currentLocation && infoWindowOverlayRef.current) {
+        setTimeout(() => {
+          updateInfoWindowOverlay();
+        }, 500);
+      }
     }, 100);
   };
   
@@ -805,86 +1099,89 @@ const filteredLocations = locations.filter(location => {
   
   // Update this function to properly sort locations by time and handle daily routes
   const calculateDailyRoutes = async () => {
-    if (!mapInstance || !isLoaded) {
-      console.log("Map not ready for routes");
-      return;
+    console.log("Calculating daily routes...");
+
+    if (!mapInstance || !isLoaded || isResetting) {
+        console.log("Map not ready for routes or reset in progress");
+        return;
     }
     
     console.log("Calculating routes for day:", activeDay || "all days");
     setIsLoadingDirections(true);
     
     try {
-      // Clear previous markers and routes
-      clearRouteVisuals();
-      
-      // Create daily activities map directly from summaryOfDay
-      const dailyActivitiesMap = createDailyActivitiesMap(tripPlan);
-      
-      // Determine which days to process
-      const daysToProcess = activeDay 
-        ? [parseInt(activeDay)]
-        : [];  // Change this to empty array to avoid showing all days
-      
-      console.log("Processing days:", daysToProcess);
-      
-      // Process each day
-      for (const dayNum of daysToProcess) {
-        const activities = dailyActivitiesMap.get(dayNum) || [];
+        // Clear previous markers and routes
+        clearRouteVisuals();
         
-        console.log(`Day ${dayNum}: Processing ${activities.length} activities`);
+        // Create daily activities map directly from summaryOfDay
+        const dailyActivitiesMap = createDailyActivitiesMap(tripPlan);
         
-        // Skip days with insufficient activities for routes
-        if (activities.length < 2) {
-          console.log(`Day ${dayNum}: Not enough activities for route calculation`);
-          // Still add sequence labels if we have any activities
-          if (activities.length === 1) {
+        // Determine which days to process
+        const daysToProcess = activeDay 
+            ? [parseInt(activeDay)]
+            : [];  // Change this to empty array to avoid showing all days
+        
+        console.log("Processing days:", daysToProcess);
+        
+        // Process each day
+        for (const dayNum of daysToProcess) {
+            const activities = dailyActivitiesMap.get(dayNum) || [];
+            
+            console.log(`Day ${dayNum}: Processing ${activities.length} activities`);
+            
+            // Skip days with insufficient activities for routes
+            if (activities.length < 2) {
+                console.log(`Day ${dayNum}: Not enough activities for route calculation`);
+                // Still add sequence labels if we have any activities
+                if (activities.length === 1) {
+                    addSequenceLabels(activities, dayNum);
+                }
+                continue;
+            }
+            
+            try {
+                // Calculate route
+                const directionsService = new google.maps.DirectionsService();
+                const waypoints = activities.slice(1, -1).map(act => ({
+                    location: new google.maps.LatLng(act.position.lat, act.position.lng),
+                    stopover: true
+                }));
+                
+                const result = await directionsService.route({
+                    origin: new google.maps.LatLng(
+                        activities[0].position.lat,
+                        activities[0].position.lng
+                    ),
+                    destination: new google.maps.LatLng(
+                        activities[activities.length - 1].position.lat,
+                        activities[activities.length - 1].position.lng
+                    ),
+                    waypoints,
+                    travelMode: google.maps.TravelMode.DRIVING,
+                    optimizeWaypoints: false
+                });
+                
+                console.log(`Route calculated for day ${dayNum}:`, result);
+                setDirectionsResponses(prev => {
+                    // Always treat prev as an array
+                    const prevArray = Array.isArray(prev) ? prev : [];
+                    return [...prevArray, { day: dayNum, response: result }];
+                });
+            } catch (error) {
+                console.error(`Error calculating route for day ${dayNum}:`, error);
+                // Create fallback route if directions API fails
+                createFallbackRoute(activities, dayNum);
+            }
+            
+            // Add sequence labels for activities
             addSequenceLabels(activities, dayNum);
-          }
-          continue;
         }
-        
-        try {
-          // Calculate route
-          const directionsService = new google.maps.DirectionsService();
-          const waypoints = activities.slice(1, -1).map(act => ({
-            location: new google.maps.LatLng(act.position.lat, act.position.lng),
-            stopover: true
-          }));
-          
-          const result = await directionsService.route({
-            origin: new google.maps.LatLng(
-              activities[0].position.lat,
-              activities[0].position.lng
-            ),
-            destination: new google.maps.LatLng(
-              activities[activities.length - 1].position.lat,
-              activities[activities.length - 1].position.lng
-            ),
-            waypoints,
-            travelMode: google.maps.TravelMode.DRIVING,
-            optimizeWaypoints: false
-          });
-          
-          setDirectionsResponses(prev => {
-            // Always treat prev as an array
-            const prevArray = Array.isArray(prev) ? prev : [];
-            return [...prevArray, { day: dayNum, response: result }];
-          });
-        } catch (error) {
-          console.error(`Error calculating route for day ${dayNum}:`, error);
-          // Create fallback route if directions API fails
-          createFallbackRoute(activities, dayNum);
-        }
-        
-        // Add sequence labels for activities
-        addSequenceLabels(activities, dayNum);
-      }
     } catch (error) {
-      console.error("Error in route calculation:", error);
+        console.error("Error in route calculation:", error);
     } finally {
-      setIsLoadingDirections(false);
+        setIsLoadingDirections(false);
     }
-  };
+};
 
   const addSequenceLabels = (activities, dayNum) => {
     // First, clear existing markers for this specific day
@@ -1025,63 +1322,6 @@ const createFallbackRoute = (locations, day) => {
   addSequenceLabels(locations, day);
 };
 
-// Add this function to handle segmented routes for days with many stops
-const createSegmentedRoute = async (locations, day) => {
-  const MAX_SEGMENT_SIZE = 8;
-  const segments = [];
-  
-  // Break locations into segments
-  for (let i = 0; i < locations.length; i += MAX_SEGMENT_SIZE) {
-    segments.push(locations.slice(i, i + MAX_SEGMENT_SIZE + 1));
-  }
-  
-  // Process each segment
-  for (let i = 0; i < segments.length; i++) {
-    const segment = segments[i];
-    
-    if (segment.length >= 2) {
-      const origin = segment[0].position;
-      const destination = segment[segment.length - 1].position;
-      const waypoints = segment.slice(1, -1).map(loc => ({
-        location: new google.maps.LatLng(loc.position.lat, loc.position.lng),
-        stopover: true
-      }));
-      
-      try {
-        const directionsService = new google.maps.DirectionsService();
-        const result = await directionsService.route({
-          origin: new google.maps.LatLng(origin.lat, origin.lng),
-          destination: new google.maps.LatLng(destination.lat, destination.lng),
-          waypoints,
-          travelMode: google.maps.TravelMode.DRIVING,
-          optimizeWaypoints: false
-        });
-        
-        // Fixed state update to ensure we're always working with an array
-        setDirectionsResponses(prev => {
-          const segmentId = `${day}-segment-${i}-${Date.now()}`;
-          // Make sure prev is treated as an array
-          const prevArray = Array.isArray(prev) ? prev : [];
-          return [...prevArray, { day: segmentId, response: result }];
-        });
-      } catch (error) {
-        console.error(`Error calculating route segment ${i} for day ${day}:`, error);
-        createFallbackRoute(segment, `${day}-segment-${i}`);
-      }
-      
-      // Small delay between segments
-      await new Promise(resolve => setTimeout(resolve, 300));
-    }
-  }
-  
-  // Get the actual day number from the day parameter
-  // If day is a segment ID like "3-segment-0", extract just the day number "3"
-  const dayNumber = parseInt(String(day).split('-')[0]);
-  
-  // Important: Call addSequenceLabels with the correct day number
-  // This ensures each day has its own sequence starting from 1
-  addSequenceLabels(locations, dayNumber);
-};
 // Replace both activeDay useEffects with this single one
 useEffect(() => {
   // Skip if map isn't loaded yet
@@ -1121,7 +1361,7 @@ useEffect(() => {
             }
           }));
       }
-    } else {
+    } else if (!isResetting) { // Only fit all location bounds if NOT resetting
       // Get all days' activities
       tripPlan.dailyPlan.forEach(day => {
         if (day.summaryOfDay) {
@@ -1139,14 +1379,14 @@ useEffect(() => {
     }
     
     // Set map bounds if we have activities
-    if (activitiesForDay.length > 0) {
+    if (activitiesForDay.length > 0 && !isResetting) { // Don't adjust bounds during reset
       const bounds = new window.google.maps.LatLngBounds();
       activitiesForDay.forEach(act => bounds.extend(act.position));
       mapInstance.fitBounds(bounds);
     }
   }, 200);
   
-}, [activeDay, isLoaded, mapInstance, tripPlan]);
+}, [activeDay, isLoaded, mapInstance, tripPlan, isResetting]); // Add isResetting to the dependency array
 
 // Add this effect to handle load errors
 useEffect(() => {
@@ -1181,6 +1421,435 @@ useEffect(() => {
   });
 }, [activeDay, sequenceMarkers]);
 
+// Add this function to fetch place photos and construct them in the same format as used in DayPlan
+const fetchPlacePhoto = (location) => {
+  setIsLoadingPhoto(true);
+  setLocationPhoto(null);
+  
+  if (!placesServiceRef.current && mapInstance) {
+    placesServiceRef.current = new window.google.maps.places.PlacesService(mapInstance);
+  }
+  
+  if (!placesServiceRef.current) {
+    console.error("Places service not available");
+    setIsLoadingPhoto(false);
+    return;
+  }
+  
+  // Ensure location has all required properties to avoid errors
+  if (!location || !location.name) {
+    console.error("Invalid location object provided to fetchPlacePhoto");
+    setIsLoadingPhoto(false);
+    return;
+  }
+  
+  // Ensure location.type exists, default to 'location' if not
+  const locationType = location.type || 'location';
+  
+  // Create a search query based on the location name and position
+  const request = {
+    query: `${location.name} ${tripPlan?.tripDetails?.destination || ''}`,
+    fields: ['photos', 'formatted_address', 'name', 'rating', 'opening_hours', 'geometry'],
+    locationBias: location.position ? 
+      new window.google.maps.LatLng(location.position.lat, location.position.lng) : 
+      undefined
+  };
+  
+  try {
+    placesServiceRef.current.findPlaceFromQuery(request, (results, status) => {
+      if (status === window.google.maps.places.PlacesServiceStatus.OK && results && results[0]?.photos && results[0].photos.length > 0) {
+        const photoUrl = results[0].photos[0].getUrl({maxWidth: 400, maxHeight: 300});
+        
+        // Format the location data to match the activity structure in DayPlan
+        const formattedLocation = {
+          locationImage: photoUrl,
+          address: results[0].formatted_address,
+          rating: results[0].rating,
+          isOpen: results[0]?.opening_hours?.isOpen ? results[0].opening_hours.isOpen() : null,
+          features: [
+            locationType === 'hotel' ? 'Accommodation' : 
+            locationType === 'restaurant' ? 'Restaurant' : 
+            locationType === 'attraction' ? 'Attraction' : 
+            locationType.charAt(0).toUpperCase() + locationType.slice(1)
+          ],
+          // Additional properties that might be useful
+          country: tripPlan?.tripDetails?.destination,
+          name: location.name,
+          locationDescription: location.description
+        };
+        
+        setLocationPhoto(formattedLocation);
+      } else {
+        // Use backup method with nearbySearch if the first method fails
+        const nearbyRequest = {
+          location: location.position,
+          radius: 100,
+          keyword: location.name
+        };
+        
+        placesServiceRef.current.nearbySearch(nearbyRequest, (nearbyResults, nearbyStatus) => {
+          if (nearbyStatus === window.google.maps.places.PlacesServiceStatus.OK && 
+              nearbyResults && nearbyResults[0]?.photos && nearbyResults[0].photos.length > 0) {
+            const photoUrl = nearbyResults[0].photos[0].getUrl({maxWidth: 400, maxHeight: 300});
+            
+            // Format the location data to match the activity structure in DayPlan
+            const formattedLocation = {
+              locationImage: photoUrl,
+              address: nearbyResults[0].vicinity,
+              rating: nearbyResults[0].rating,
+              isOpen: nearbyResults[0]?.opening_hours?.open_now,
+              features: [
+                locationType === 'hotel' ? 'Accommodation' : 
+                locationType === 'restaurant' ? 'Restaurant' : 
+                locationType === 'attraction' ? 'Attraction' : 
+                locationType.charAt(0).toUpperCase() + locationType.slice(1)
+              ],
+              // Additional properties 
+              country: tripPlan?.tripDetails?.destination,
+              name: location.name,
+              locationDescription: location.description
+            };
+            
+            setLocationPhoto(formattedLocation);
+          } else {
+            // If all else fails, create a minimal formatted location
+            const formattedLocation = {
+              locationImage: null,
+              address: location.description,
+              features: [
+                locationType === 'hotel' ? 'Accommodation' : 
+                locationType === 'restaurant' ? 'Restaurant' : 
+                locationType === 'attraction' ? 'Attraction' : 
+                locationType.charAt(0).toUpperCase() + locationType.slice(1)
+              ],
+              country: tripPlan?.tripDetails?.destination,
+              name: location.name,
+              locationDescription: location.description
+            };
+            setLocationPhoto(formattedLocation);
+          }
+          setIsLoadingPhoto(false);
+        });
+      }
+      setIsLoadingPhoto(false);
+    });
+  } catch (error) {
+    console.error("Error fetching place photo:", error);
+    setIsLoadingPhoto(false);
+  }
+};
+
+  // Function to close the info window and reset state
+const closeInfoWindow = useCallback(() => {
+  try {
+    if (infoWindowOverlayRef.current) {
+      // Don't check for isValid property since it doesn't exist
+      // Just check if setMap is a function
+      if (typeof infoWindowOverlayRef.current.setMap === 'function') {
+        infoWindowOverlayRef.current.setMap(null);
+      } else {
+        console.warn('InfoWindowOverlay does not have setMap method');
+      }
+      infoWindowOverlayRef.current = null;
+    }
+    setSelectedLocation(null);
+    setLocationPhoto(null);
+  } catch (error) {
+    console.error('Error closing info window:', error);
+    infoWindowOverlayRef.current = null;
+    setSelectedLocation(null);
+    setLocationPhoto(null);
+  }
+}, []);
+  
+  // Add the handleMarkerClick function
+  const handleMarkerClick = (location) => {
+    // Reset any existing selection
+    closeInfoWindow();
+    
+    // Small delay to ensure previous data is cleared
+    setTimeout(() => {
+      setSelectedLocation(location);
+      
+      if (location.position && mapInstance) {
+        // Pan to the location with animation
+        mapInstance.panTo(location.position);
+        
+        // Wait for the map to finish panning before adjusting zoom
+        setTimeout(() => {
+          // Adjust zoom level to better see the location
+          mapInstance.setZoom(15);
+          
+          // If we already have locationImage, rating, etc. from the JSON data
+          // create a formatted location object directly
+          if (location.locationImage) {
+            const formattedLocation = {
+              locationImage: location.locationImage,
+              address: location.originalLocation || location.description,
+              rating: location.rating,
+              isOpen: null, // We don't have this info in the JSON data
+              features: [
+                location.type === 'hotel' ? 'Accommodation' : 
+                location.type === 'restaurant' ? 'Restaurant' : 
+                location.type === 'attraction' ? 'Attraction' : 
+                location.type.charAt(0).toUpperCase() + location.type.slice(1)
+              ],
+              country: tripPlan?.tripDetails?.destination,
+              name: location.name,
+              locationDescription: location.locationDescription || location.description
+            };
+            setLocationPhoto(formattedLocation);
+          } else {
+            // If we don't have the image data, fetch it from Google Places API
+            fetchPlacePhoto(location);
+          }
+        }, 300); // Add a delay to wait for the map to finish panning
+      }
+    }, 10);
+  };
+
+  // Create a function to update or create the info window overlay
+  const updateInfoWindowOverlay = useCallback(() => {
+    // Safety checks with better logging
+    if (!InfoWindowOverlayClass) {
+      console.error('Cannot create InfoWindow: InfoWindowOverlayClass is not defined');
+      return;
+    }
+    
+    if (!window.google?.maps) {
+      console.error('Cannot create InfoWindow: Google Maps API not loaded');
+      return;
+    }
+    
+    if (!mapInstance) {
+      console.error('Cannot create InfoWindow: Map instance not available');
+      return;
+    }
+    
+    if (!selectedLocation?.position) {
+      console.error('Cannot create InfoWindow: Selected location has no position');
+      return;
+    }
+    
+    // Create the overlay content
+    const content = document.createElement('div');
+    content.className = "info-window-content pointer-events-auto";
+    
+    // Add close handler directly to content using data attribute
+    content.dataset.closeHandler = 'true';
+    
+    // Add card content
+    content.innerHTML = `
+      <div class="relative">
+        <div class="rounded-md overflow-hidden w-[240px] shadow-xl bg-white">
+          <!-- Image section -->
+          <div class="relative w-full h-28 bg-gray-100">
+            ${isLoadingPhoto 
+              ? '<div class="w-full h-full flex items-center justify-center"><div class="animate-spin h-4 w-4 border-2 border-indigo-500 rounded-full border-t-transparent"></div></div>' 
+              : (locationPhoto?.locationImage || selectedLocation.locationImage) 
+                ? `<img src="${locationPhoto?.locationImage || selectedLocation.locationImage}" alt="${selectedLocation.name}" class="w-full h-full object-cover"/>` 
+                : '<div class="w-full h-full flex items-center justify-center bg-gray-50"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-gray-400"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg></div>'
+            }
+            
+            <!-- Type badge overlay -->
+            <div class="absolute top-2 left-2">
+              <span class="px-1.5 py-0.5 bg-white text-[10px] font-medium text-gray-700 rounded shadow-sm">
+                ${selectedLocation?.type 
+                  ? selectedLocation.type.charAt(0).toUpperCase() + selectedLocation.type.slice(1) 
+                  : 'Location'}
+              </span>
+            </div>
+            
+            <!-- Close button -->
+            <button id="close-info-window" class="absolute top-2 right-2 p-1 bg-white rounded-full shadow-sm hover:bg-gray-100 transition-colors">
+              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-gray-600"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
+          </div>
+          
+          <!-- Info section -->
+          <div class="px-3 py-2">
+            <!-- Title and Day badge -->
+            <div class="flex items-start justify-between">
+              <h5 class="font-medium text-sm text-gray-900 leading-tight mr-1">${selectedLocation.name}</h5>
+              ${selectedLocation.day 
+                ? `<span class="shrink-0 px-1.5 py-0.5 bg-indigo-50 text-indigo-700 text-[9px] rounded-sm mt-0.5">
+                    ${selectedLocation.day.replace('Day ', 'D')}
+                   </span>` 
+                : ''}
+            </div>
+            
+            <!-- Address -->
+            <div class="flex mt-1">
+              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-gray-500 mt-0.5 mr-1 flex-shrink-0"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+              <p class="text-[11px] text-gray-500 leading-tight">
+                ${locationPhoto?.address || selectedLocation.originalLocation || selectedLocation.description || selectedLocation.name}
+              </p>
+            </div>
+            
+            <!-- Bottom row with ratings and status -->
+            <div class="flex items-center justify-between mt-1.5">
+              <!-- Ratings -->
+              ${(locationPhoto?.rating || selectedLocation.rating) 
+                ? `<div class="flex items-center">
+                    ${Array(5).fill().map((_, i) => 
+                      `<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="${i < Math.floor(locationPhoto?.rating || selectedLocation.rating) ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${i < Math.floor(locationPhoto?.rating || selectedLocation.rating) ? 'text-amber-400' : 'text-gray-200'}"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>`
+                    ).join('')}
+                    <span class="text-[9px] text-gray-600 ml-1">
+                      ${parseFloat(locationPhoto?.rating || selectedLocation.rating).toFixed(1)}
+                    </span>
+                  </div>` 
+                : '<div></div>'
+              }
+              
+              <!-- Status indicator -->
+              ${locationPhoto?.isOpen !== null && locationPhoto?.isOpen !== undefined 
+                ? `<span class="text-[9px] font-medium ${locationPhoto.isOpen ? 'text-green-600' : 'text-red-600'}">
+                    ${locationPhoto.isOpen ? '• Open now' : '• Closed'}
+                   </span>`
+                : ''
+              }
+            </div>
+          </div>
+        </div>
+        
+        <!-- Arrow pointer -->
+        <div class="absolute left-1/2 bottom-[-8px] transform -translate-x-1/2 w-4 h-4 rotate-45 bg-white shadow"></div>
+      </div>
+    `;
+    
+    // Add the click listener directly on the content element to handle delegation
+    content.addEventListener('click', (e) => {
+      // Find any close button clicked
+      if (e.target.closest('#close-info-window')) {
+        closeInfoWindow();
+      }
+    });
+    
+    // Create the position
+    const position = new window.google.maps.LatLng(
+      selectedLocation.position.lat,
+      selectedLocation.position.lng
+    );
+    
+    // Create or update the overlay with a slight delay to ensure map is settled
+    setTimeout(() => {
+      try {
+        if (infoWindowOverlayRef.current) {
+          infoWindowOverlayRef.current.updateContent(content);
+          infoWindowOverlayRef.current.updatePosition(position);
+          
+          // Ensure the map is centered on the location if needed
+          const currentCenter = mapInstance.getCenter();
+          const markerPos = new google.maps.LatLng(
+            selectedLocation.position.lat,
+            selectedLocation.position.lng
+          );
+          
+          // If marker is far from center, pan to it
+          if (google.maps.geometry.spherical.computeDistanceBetween(currentCenter, markerPos) > 1000) {
+            mapInstance.panTo(markerPos);
+          }
+        } else {
+          // Add defensive check - verify InfoWindowOverlayClass is a constructor function
+          if (typeof InfoWindowOverlayClass !== 'function') {
+            console.error('InfoWindowOverlayClass is not a constructor function:', InfoWindowOverlayClass);
+            return;
+          }
+          
+          // Create new instance with the new keyword
+          infoWindowOverlayRef.current = new InfoWindowOverlayClass(position, content);
+          infoWindowOverlayRef.current.setMap(mapInstance);
+        }
+      } catch (error) {
+        console.error('Error creating/updating InfoWindow overlay:', error);
+      }
+    }, 100); // Increased delay for better reliability
+  }, [mapInstance, selectedLocation, locationPhoto, isLoadingPhoto, closeInfoWindow, InfoWindowOverlayClass]);
+
+  // Effect to update the info window when selectedLocation or locationPhoto changes
+  useEffect(() => {
+    if (selectedLocation && mapInstance) {
+      updateInfoWindowOverlay();
+    }
+  }, [selectedLocation, locationPhoto, isLoadingPhoto, updateInfoWindowOverlay]);
+
+  // Effect to update the info window when the map moves
+  useEffect(() => {
+    if (mapInstance && selectedLocation) {
+      const listener = mapInstance.addListener('idle', updateInfoWindowOverlay);
+      return () => {
+        window.google.maps.event.removeListener(listener);
+      };
+    }
+  }, [mapInstance, selectedLocation, updateInfoWindowOverlay]);
+
+  // Clean up overlay on component unmount
+  useEffect(() => {
+    return () => {
+      if (infoWindowOverlayRef.current) {
+        infoWindowOverlayRef.current.setMap(null);
+      }
+    };
+  }, []);
+
+  // Implement handleReset function to clear directions and deselect day
+  const handleReset = () => {
+    console.log("Resetting map to initial state...");
+    
+    // Set resetting flag to block any route calculations
+    setIsResetting(true);
+
+    // Clear all renderers
+    activeRenderers.current.forEach(renderer => {
+        if (renderer) {
+            console.log("Removing renderer from map:", renderer);
+            renderer.setMap(null);
+        }
+    });
+    activeRenderers.current = [];
+    
+    // Clear all route visuals
+    clearRouteVisuals();
+    
+    // Reset active day selection
+    console.log("Resetting active day selection...");
+    setActiveDay(null);
+    
+    // Clear directions responses to remove route lines
+    console.log("Clearing directions responses...");
+    setDirectionsResponses([]);
+    
+    // Clear fallback polylines
+    console.log("Clearing fallback polylines...");
+    setFallbackPolylines([]);
+    
+    // Reset other states
+    console.log("Resetting other states...");
+    setGeocodedLocations(locations.filter(loc => loc.position));
+    setSelectedLocation(null);
+    
+    // Show toast message
+    showToastMessage("Map reset - showing all locations");
+    
+    // Extend the reset duration to ensure all state updates have settled
+    setTimeout(() => {
+        setIsResetting(false);
+    }, 2000); // Increased from 1000 to 2000ms for more safety
+};
+
+// Add this effect to initialize the InfoWindowOverlayClass when Google Maps loads
+useEffect(() => {
+  if (isLoaded && window.google?.maps) {
+    try {
+      const OverlayClass = createInfoWindowOverlay();
+      console.log("Created InfoWindowOverlay class:", !!OverlayClass);
+      setInfoWindowOverlayClass(() => OverlayClass); // Use function form for setting state
+    } catch (error) {
+      console.error("Error creating InfoWindowOverlay class:", error);
+    }
+  }
+}, [isLoaded]);
+
   return (
     <AnimatePresence>
       {isOpen && (
@@ -1188,7 +1857,7 @@ useEffect(() => {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm transition-opacity duration-300"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm transition-opacity duration-300"
         >
           <motion.div
             initial={{ scale: 0.95, opacity: 0 }}
@@ -1210,23 +1879,6 @@ useEffect(() => {
                 )}
               </div>
               <div className="flex items-center space-x-3">
-                <motion.button
-                  whileHover={{ scale: 1.07 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={shareMap}
-                  className="p-2 rounded-full bg-indigo-50 hover:bg-indigo-100 text-indigo-700 transition-colors duration-300 shadow-sm hover:shadow-lg"
-                >
-                  <Share2 className="w-4 h-4" />
-                </motion.button>
-                {/* Capture Map Button */}
-                <motion.button
-                  whileHover={{ scale: 1.07 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={captureMap}
-                  className="p-2 rounded-full bg-indigo-50 hover:bg-indigo-100 text-indigo-700 transition-colors duration-300 shadow-sm hover:shadow-lg"
-                >
-                  <Camera className="w-4 h-4" />
-                </motion.button>
                 {/* Toggle Map Type Button */}
                 <motion.button
                   whileHover={{ scale: 1.07 }}
@@ -1283,7 +1935,7 @@ useEffect(() => {
                   <motion.button
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
-                    onClick={() => handleDaySelect(1)}
+                    onClick={handleReset}
                     className="px-3.5 py-2 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-100 ml-2 transition-all duration-300 shadow-sm hover:shadow-md border border-gray-200"
                   >
                     Reset
@@ -1329,7 +1981,7 @@ useEffect(() => {
               initial={{ y: 20, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               transition={{ delay: 0.3 }}
-              className="absolute bottom-20 left-4 z-10 bg-white/95 backdrop-blur-md rounded-xl shadow-lg overflow-hidden transition-all duration-300 border border-gray-100"
+              className="absolute bottom-20 left-4 z-10 bg-white/95 backdrop-blur-md rounded-xl shadow-lg transition-all duration-300 border border-gray-100"
             >
               <div className="p-3 bg-gradient-to-r from-indigo-50 to-indigo-100 border-b border-indigo-100 flex items-center space-x-2">
                 <Filter className="w-4 h-4 text-indigo-700" />
@@ -1471,13 +2123,13 @@ useEffect(() => {
                   >
                     {(clusterer) => 
                       filteredLocations.map((location, index) => (
-                        location.position && (
+                        location.position ? (
                           <Marker
                             key={`${location.name}-${index}`}
                             position={location.position}
                             title={location.name}
                             icon={getMarkerIcon(location.type)}
-                            onClick={() => setSelectedLocation(location)}
+                            onClick={() => handleMarkerClick(location)}
                             animation={selectedLocation === location ? window.google.maps.Animation.BOUNCE : null}
                             label={{
                               text: location.name,
@@ -1486,39 +2138,143 @@ useEffect(() => {
                               fontWeight: '500',
                               className: `marker-label ${selectedLocation === location ? 'visible' : ''}`
                             }}
-                            onMouseOver={() => {
-                              setSelectedLocation(location);
-                              if (mapInstance) {
-                                mapInstance.panTo(location.position);
-                              }
-                            }}
                             clusterer={clusterer}
                           />
+                        ) : (
+                          // For locations being geocoded, show a loading indicator or placeholder
+                          geocodingProgress < 100 && (
+                            <div key={`loading-${location.name}-${index}`} className="hidden">
+                              {/* This div is hidden but helps track locations awaiting geocoding */}
+                            </div>
+                          )
                         )
                       ))
                     }
                   </MarkerClusterer>
 
-                  {/* Selected Location InfoWindow */}
+                  {/* Geocoding Status Indicator */}
+                  {geocodingProgress > 0 && geocodingProgress < 100 && (
+                    <div className="absolute bottom-24 left-1/2 transform -translate-x-1/2 bg-white/90 backdrop-blur-sm px-4 py-2 rounded-full shadow-lg z-50 flex items-center space-x-2">
+                      <Loader className="w-4 h-4 text-indigo-500 animate-spin" />
+                      <span className="text-xs font-medium text-gray-700">
+                        Geocoding locations: {Math.round(geocodingProgress)}%
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Selected Location Custom InfoWindow */}
                   {selectedLocation && selectedLocation.position && (
-                    <InfoWindow
-                      position={selectedLocation.position}
-                      onCloseClick={() => setSelectedLocation(null)}
+                    <div 
+                      className="custom-info-window-overlay absolute pointer-events-none z-[9999]"
+                      style={{
+                        left: 0,
+                        top: 0,
+                        width: '100%',
+                        height: '100%',
+                        zIndex: 9999
+                      }}
                     >
-                      <div className="p-2 max-w-xs">
-                        <h4 className="font-semibold text-gray-900">{selectedLocation.name}</h4>
-                        {selectedLocation.description && (
-                          <p className="text-sm text-gray-600 mt-1">
-                            {selectedLocation.description}
-                          </p>
-                        )}
-                        {selectedLocation.day && (
-                          <div className="mt-2 text-xs font-medium px-2 py-1 bg-indigo-50 text-indigo-700 rounded-full inline-block">
-                            {selectedLocation.day}
+                      <div 
+                        className="absolute z-40 pointer-events-auto"
+                        style={{
+                          position: 'absolute',
+                          left: `${selectedLocation.position.x}px`, 
+                          top: `${selectedLocation.position.y}px`,
+                          transform: 'translate(-50%, -120%)' // Position above the marker
+                        }}
+                      >
+                        {/* Card content */}
+                        <div className="relative">
+                          <div className="rounded-md z-[9999] w-[240px] shadow-md bg-white">
+                            {/* Image section */}
+                            <div className="relative w-full h-28 bg-gray-100">
+                              {isLoadingPhoto ? (
+                                <div className="w-full h-full flex items-center justify-center">
+                                  <Loader className="w-4 h-4 text-indigo-500 animate-spin" />
+                                </div>
+                              ) : (locationPhoto?.locationImage || selectedLocation.locationImage) ? (
+                                <img 
+                                  src={locationPhoto?.locationImage || selectedLocation.locationImage} 
+                                  alt={selectedLocation.name} 
+                                  className="w-full h-full object-cover"
+                                />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center bg-gray-50">
+                                  <MapPin className="w-5 h-5 text-gray-400" />
+                                </div>
+                              )}
+                              
+                              {/* Type badge overlay */}
+                              <div className="absolute top-2 left-2">
+                                <span className="px-1.5 py-0.5 bg-white text-[10px] font-medium text-gray-700 rounded shadow-sm">
+                                  {selectedLocation && selectedLocation.type ? 
+                                    selectedLocation.type.charAt(0).toUpperCase() + selectedLocation.type.slice(1) : 
+                                    'Location'}
+                                </span>
+                              </div>
+                              
+                              {/* Close button */}
+                              <button
+                                onClick={() => {
+                                  closeInfoWindow();
+                                }}
+                                className="absolute top-2 right-2 p-1 bg-white rounded-full shadow-sm hover:bg-gray-100 transition-colors"
+                              >
+                                <X className="w-3 h-3 text-gray-600" />
+                              </button>
+                            </div>
+                            
+                            {/* Info section */}
+                            <div className="px-3 py-2">
+                              {/* Title and Day badge */}
+                              <div className="flex items-start justify-between">
+                                <h5 className="font-medium text-sm text-gray-900 leading-tight mr-1">{selectedLocation.name}</h5>
+                                {selectedLocation.day && (
+                                  <span className="shrink-0 px-1.5 py-0.5 bg-indigo-50 text-indigo-700 text-[9px] rounded-sm mt-0.5">
+                                    {selectedLocation.day.replace('Day ', 'D')}
+                                  </span>
+                                )}
+                              </div>
+                              
+                              {/* Address */}
+                              <div className="flex mt-1">
+                                <MapPin className="w-3 h-3 text-gray-500 mt-0.5 mr-1 flex-shrink-0" />
+                                <p className="text-[11px] text-gray-500 leading-tight">
+                                  {locationPhoto?.address || selectedLocation.originalLocation || selectedLocation.description || selectedLocation.name}
+                                </p>
+                              </div>
+                              
+                              {/* Bottom row with ratings and status */}
+                              <div className="flex items-center justify-between mt-1.5">
+                                {/* Ratings */}
+                                {(locationPhoto?.rating || selectedLocation.rating) ? (
+                                  <div className="flex items-center">
+                                    {[...Array(5)].map((_, i) => (
+                                      <Star key={i} 
+                                        className={`w-2.5 h-2.5 ${i < Math.floor(locationPhoto?.rating || selectedLocation.rating) ? 'text-amber-400 fill-amber-400' : 'text-gray-200'}`} 
+                                      />
+                                    ))}
+                                    <span className="text-[9px] text-gray-600 ml-1">
+                                      {parseFloat(locationPhoto?.rating || selectedLocation.rating).toFixed(1)}
+                                    </span>
+                                  </div>
+                                ) : <div />}
+                                
+                                {/* Status indicator */}
+                                {locationPhoto?.isOpen !== null && locationPhoto?.isOpen !== undefined && (
+                                  <span className={`text-[9px] font-medium ${locationPhoto.isOpen ? 'text-green-600' : 'text-red-600'}`}>
+                                    {locationPhoto.isOpen ? '• Open now' : '• Closed'}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
                           </div>
-                        )}
+                          
+                          {/* Arrow pointer */}
+                          <div className="absolute left-1/2 bottom-[-8px] transform -translate-x-1/2 w-4 h-4 rotate-45 bg-white shadow"></div>
+                        </div>
                       </div>
-                    </InfoWindow>
+                    </div>
                   )}
 
                   {/* Itinerary Panel */}
@@ -1528,11 +2284,43 @@ useEffect(() => {
                         // ...existing logic...
                       })}
                       onSelectLocation={(location) => {
-                        setSelectedLocation(location);
-                        if (location.position && mapInstance) {
-                          mapInstance.panTo(location.position);
-                          mapInstance.setZoom(15);
+                        // Reset any existing selection
+                        closeInfoWindow();
+                        
+                        // Remove existing overlay
+                        if (infoWindowOverlayRef.current) {
+                          infoWindowOverlayRef.current.setMap(null);
+                          infoWindowOverlayRef.current = null;
                         }
+                        
+                        setTimeout(() => {
+                          setSelectedLocation(location);
+                          if (location.position && mapInstance) {
+                            mapInstance.panTo(location.position);
+                            mapInstance.setZoom(15);
+                            
+                            if (location.locationImage) {
+                              const formattedLocation = {
+                                locationImage: location.locationImage,
+                                address: location.originalLocation || location.description,
+                                rating: location.rating,
+                                isOpen: null,
+                                features: [
+                                  location.type === 'hotel' ? 'Accommodation' : 
+                                  location.type === 'restaurant' ? 'Restaurant' : 
+                                  location.type === 'attraction' ? 'Attraction' : 
+                                  location.type.charAt(0).toUpperCase() + location.type.slice(1)
+                                ],
+                                country: tripPlan?.tripDetails?.destination,
+                                name: location.name,
+                                locationDescription: location.locationDescription || location.description
+                              };
+                              setLocationPhoto(formattedLocation);
+                            } else {
+                              fetchPlacePhoto(location);
+                            }
+                          }
+                        }, 10);
                       }}
                       tripPlan={tripPlan}
                       activeDay={activeDay}
@@ -1540,13 +2328,13 @@ useEffect(() => {
                   )}
 
                   {/* Directions */}
-                  {Array.isArray(directionsResponses) && directionsResponses
+                  {Array.isArray(directionsResponses) && !isResetting && directionsResponses
                     .filter(({ day }) => !activeDay ||
                       day === activeDay ||
                       (activeDay && String(day).startsWith(`${activeDay}-segment-`)))
                     .map(({ day, response }, index) => (
                       <DirectionsRenderer
-                        key={`dir-${day}-${index}-${Date.now()}`}
+                        key={`dir-${day}-${index}`} // Removed Date.now() for a more stable key
                         options={{
                           directions: response,
                           suppressMarkers: true,
