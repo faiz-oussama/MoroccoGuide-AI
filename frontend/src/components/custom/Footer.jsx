@@ -68,7 +68,7 @@ const Footer = () => {
         {/* Copyright */}
         <div className="text-center border-t border-gray-100 pt-8">
           <p className="text-gray-500 text-sm">
-            © {new Date().getFullYear()} Trip Planner AI. All rights reserved.
+            © {new Date().getFullYear()} Made with ❤️ by <a target="_blank" rel="noopener noreferrer" href="https://github.com/faiz-oussama" className="text-sahara-red hover:text-sahara-red-dark">Faiz Oussama</a>. All rights reserved.
           </p>
         </div>
       </div>

@@ -2,7 +2,7 @@
 
 A comprehensive travel planning application focused on Morocco destinations, leveraging AI to create personalized trip itineraries.
 
-![MaghrebAI Trip Planner](https://i.imgur.com/your-screenshot-url.png)
+![MaghrebAI Trip Planner](./1.png)
 
 ## 🌟 Features
 
